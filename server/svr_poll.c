@@ -93,7 +93,8 @@ int main(int argc, char **argv)
         int bytes_read = 0;
         for (int i = 1; i < nfds; i++) {
             if (fds[i].revents & POLLIN) {
-                bytes_read = recv(fds[i].fd, buffer, BUFFER_SIZE, 0);
+                memset(buffer, 0, sizeof(buffer));
+                bytes_read = recv(fds[i].fd, buffer, BUFFER_SIZE - 1, 0);
                 if (bytes_read <= 0) {
                     if (bytes_read == 0) {
                         memset(&client_addr, 0, sizeof(client_addr));
