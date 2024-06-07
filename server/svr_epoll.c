@@ -12,7 +12,12 @@
 #include <arpa/inet.h>
 
 
+
+#ifdef LT_MODE
 #define BUFFER_SIZE  1024
+#else
+#define BUFFER_SIZE  5
+#endif
 #define MAX_EVENTS 10
 #define PORT 10001
 
@@ -82,8 +87,13 @@ int main(int argc, char **argv)
         return -1;
     }
 
-    // LT mode, suitable for large data transmission. 
-    ev.events = EPOLLIN;  
+    // LT mode, suitable for transmission with large amount of datas.
+    // ET mode, suitable for transmission with small amount of datas.
+#ifdef  LT_MODE
+    ev.events = EPOLLIN;
+#else   //ET_MODE
+    ev.events = EPOLLIN | EPOLLET;
+#endif
     ev.data.fd = listen_sock;
     if (epoll_ctl(epollfd, EPOLL_CTL_ADD, listen_sock, &ev) == -1) {
         perror("epoll ctrl: listen sock\r\n");
@@ -119,6 +129,7 @@ int main(int argc, char **argv)
                     continue;
                 }
             } else {
+#ifdef LT_MODE
                 int count = 0;
                 memset(buff, 0, sizeof(buff));
                 count = read(events[i].data.fd, buff, sizeof(buff) - 1);
@@ -141,9 +152,41 @@ int main(int argc, char **argv)
                     buff[count] = '\0';
                     write(events[i].data.fd, buff, count);
                 }
+#else // ET_MODE
+                int count = 0;
+                while(1) {
+                    memset(buff, 0, sizeof(buff));
+                    count = read(events[i].data.fd, buff, sizeof(buff));
+                    if (count <= 0) {
+                        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                            printf("read finish\r\n");
+                            break;
+                        }
+                        perror("read\r\n");
+                        if (count == 0) {
+                            memset(&client_addr, 0, sizeof(client_addr));
+                            client_len = sizeof(client_addr);
+                            if (getpeername(events[i].data.fd, (struct sockaddr *)&client_addr, &client_len) == -1) {
+                                printf("getpeername error(%d): %s\r\n", errno, strerror(errno));
+                            } else {
+                                char peer_addr[32] = {0};
+                                inet_ntop(AF_INET, &client_addr.sin_addr, peer_addr, sizeof(peer_addr));
+                                unsigned short peer_port = ntohs(client_addr.sin_port);
+                                printf("%s:%d disconnection from peer\r\n", peer_addr, peer_port);
+                            }
+                        }
+                        close(events[i].data.fd);  // NOTICE: events[i].data.fd will be automatically removed from epoll when it's closed. there is no need to use epoll_ctl_del to delete it.
+                        break;
+                    } else {
+                        buff[count] = '\0';
+                        write(events[i].data.fd, buff, count);
+                    }
+                }
+#endif
             }
         }
     }
+         
        
     if (listen_sock > 0)
         close(listen_sock);
